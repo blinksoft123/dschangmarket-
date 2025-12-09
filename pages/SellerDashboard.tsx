@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Package, ShoppingBag, DollarSign, Settings, Plus, BarChart3, Upload, X } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Store, Product } from '../types';
@@ -23,39 +23,46 @@ export const SellerDashboard: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Reusable function to fetch/refresh dashboard data
+  const fetchDashboardData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // 1. Get Store
+    const { data: storeData } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('owner_id', user.id)
+      .single();
+    
+    setStore(storeData);
+
+    // 2. Get Products if store exists
+    if (storeData) {
+      const { data: productData } = await supabase
+        .from('products')
+        .select('*')
+        .eq('store_id', storeData.id)
+        .order('created_at', { ascending: false });
+      
+      setProducts(productData as any[] || []);
+    }
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
-    const fetchSellerData = async () => {
+    const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
          navigate('/auth');
          return;
       }
-
-      // 1. Get Store
-      const { data: storeData } = await supabase
-        .from('stores')
-        .select('*')
-        .eq('owner_id', user.id)
-        .single();
-      
-      setStore(storeData);
-
-      // 2. Get Products if store exists
-      if (storeData) {
-        const { data: productData } = await supabase
-          .from('products')
-          .select('*')
-          .eq('store_id', storeData.id)
-          .order('created_at', { ascending: false });
-        
-        setProducts(productData as any[] || []);
-      }
-
-      setLoading(false);
+      // Initial fetch
+      await fetchDashboardData();
     };
 
-    fetchSellerData();
-  }, [navigate]);
+    init();
+  }, [navigate, fetchDashboardData]);
 
   const handleCreateStore = async () => {
     const name = prompt("Entrez le nom de votre boutique:");
@@ -72,7 +79,10 @@ export const SellerDashboard: React.FC = () => {
       is_verified: false
     });
 
-    if(!error) window.location.reload();
+    if(!error) {
+        // Refresh data instead of reloading page
+        await fetchDashboardData();
+    }
     else alert('Erreur création boutique: ' + error.message);
   };
 
@@ -94,7 +104,19 @@ export const SellerDashboard: React.FC = () => {
 
       await createProduct(productPayload, file || undefined);
       setShowAddModal(false);
-      window.location.reload();
+      
+      // Reset form
+      setNewProduct({
+        title: '',
+        description: '',
+        price: '',
+        category: '',
+        stock: ''
+      });
+      setFile(null);
+
+      // Refresh data instead of reloading page
+      await fetchDashboardData();
     } catch (e: any) {
       alert('Erreur: ' + e.message);
     } finally {
@@ -147,9 +169,12 @@ export const SellerDashboard: React.FC = () => {
                <div>
                  <label className="block text-sm font-medium">Catégorie</label>
                  <select className="w-full border p-2 rounded" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
+                   <option value="">Sélectionner une catégorie</option>
                    <option value="Electronics">Électronique</option>
                    <option value="Fashion">Mode</option>
                    <option value="Home">Maison</option>
+                   <option value="Beauty">Beauté</option>
+                   <option value="Food">Alimentation</option>
                  </select>
                </div>
                <div>
